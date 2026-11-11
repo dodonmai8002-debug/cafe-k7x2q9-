@@ -194,6 +194,7 @@ textarea::placeholder,input::placeholder{color:#5f5b52}
       </button>
       <div class="rec-time" id="recTime"></div>
       <div class="rec-label" id="recLabel">押して話す</div>
+      <div id="recDbg" style="font-size:11px;color:var(--muted);min-height:16px;text-align:center"></div>
     </div>
     <textarea id="raw" placeholder="話した言葉が、ここに文字になって入ります"></textarea>
     <div class="interim" id="interim"></div>
@@ -319,7 +320,7 @@ function startRec(target, opts = {}){
   recog.on = true; recog.target = target; recog.seg = "";
   recog.single = !!opts.single; recog.onFinish = opts.onFinish || null;
   recog.base = target.value;
-  recog.started = Date.now(); recog.heard = false; recog.lastErr = "";
+  recog.started = Date.now(); recog.heard = false; recog.lastErr = ""; recog.fatal = false; recog.log = ""; $("recDbg").textContent = "";
   spin();
   // 8秒たっても何も聞き取れていなければ止めて知らせる
   clearTimeout(recog.watch);
@@ -327,18 +328,22 @@ function startRec(target, opts = {}){
     if (recog.on && !recog.heard){
       stopRec();
       const standalone = window.navigator.standalone || matchMedia("(display-mode: standalone)").matches;
-      ask(standalone
-        ? "ホーム画面から開いたアプリでは、iPhoneの仕様で音声認識が動きません。\nSafariで開いてください。"
-        : "音声が聞き取れませんでした。" + (recog.lastErr ? "（" + recog.lastErr + "）" : "") + "\n設定 → 一般 → キーボード →「音声入力」がオンか確認して、もう一度試してください。",
-        [{ label: "OK", value: true, cls: "main" }]);
+      if (standalone) ask("ホーム画面から開いたアプリでは、iPhoneの仕様で音声認識が動きません。\nSafariで開いてください。", [{ label: "OK", value: true, cls: "main" }]);
+      else showFail(recog.lastErr);
     }
   }, 8000);
   return true;
 }
+function dbg(t){ recog.log = (recog.log ? recog.log + " → " : "") + t; $("recDbg").textContent = recog.log.slice(-90); }
 function spin(){
   const r = new SR();
-  r.lang = "ja-JP"; r.continuous = !recog.single; r.interimResults = true; r.maxAlternatives = 1;
+  // iPhoneのSafariは continuous=true だと結果が返らないことがあるため、1文ずつ聞いて自動で続ける
+  r.lang = "ja-JP"; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+  r.onstart = () => dbg("開始");
+  r.onaudiostart = () => dbg("マイクON");
+  r.onspeechstart = () => dbg("声を検出");
   r.onresult = e => {
+    if (!recog.heard) dbg("文字化OK");
     recog.heard = true; clearTimeout(recog.watch);
     recog.seg = joinResults(e.results);
     const last = e.results[e.results.length - 1];
@@ -346,25 +351,30 @@ function spin(){
     renderLive(interim);
   };
   r.onerror = e => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed"){
-      recog.on = false; stopUI();
-      toast("マイクの使用が許可されていません。設定 → Safari → マイク を確認してください");
-    } else if (e.error === "audio-capture"){
-      recog.on = false; stopUI(); toast("マイクが使えませんでした");
-    } else if (e.error !== "no-speech" && e.error !== "aborted"){
-      recog.lastErr = e.error;
+    dbg("エラー:" + e.error);
+    recog.lastErr = e.error;
+    if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture"){
+      recog.fatal = true;
     }
-    // no-speech / aborted / network は onend で再開 or 終了
   };
   r.onend = () => {
     if (recog.rec !== r) return;
     commitSeg();
-    if (recog.on && !recog.single){ try { spin(); return; } catch {} }
-    recog.on = false; stopUI();
+    if (recog.fatal){ const err = recog.lastErr; stopRec(); showFail(err); return; }
+    if (recog.on && !recog.single){ try { spin(); return; } catch (e) { dbg("再開できず"); } }
+    recog.on = false; recog.rec = null; stopUI();
     if (recog.onFinish) recog.onFinish();
   };
   recog.rec = r;
-  try { r.start(); } catch { recog.on = false; stopUI(); toast("録音を始められませんでした"); }
+  try { r.start(); } catch (e) { dbg("start失敗"); recog.on = false; stopUI(); toast("録音を始められませんでした"); }
+}
+function showFail(err){
+  let msg;
+  if (err === "not-allowed") msg = "マイクか音声認識の使用が許可されていません。\n設定 → アプリ → Safari →「マイク」を「確認」か「許可」にして、ページを開き直してください。";
+  else if (err === "service-not-allowed") msg = "iPhoneの音声入力がオフになっているようです。\n設定 → 一般 → キーボード →「音声入力」をオンにしてください。";
+  else if (err === "audio-capture") msg = "マイクが使えませんでした。ほかのアプリがマイクを使っていないか確認してください。";
+  else msg = "音声が文字になりませんでした。\n（記録：" + (recog.log || "反応なし") + "）";
+  ask(msg, [{ label: "OK", value: true, cls: "main" }]);
 }
 function commitSeg(){
   const t = recog.target; if (!t) return;
