@@ -3,7 +3,7 @@
   "short_name": "声日記",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#121318",
   "theme_color": "#121318",
   "lang": "ja",
