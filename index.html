@@ -62,6 +62,24 @@ details{margin-top:24px}
 summary{font-size:12px;letter-spacing:.1em;color:var(--sub);font-weight:600;cursor:pointer;list-style:none}
 summary::-webkit-details-marker{display:none}
 .note{font-size:12px;color:var(--sub);margin:8px 0}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.calhead h2{margin:0}
+.calnav{border:1px solid var(--line);background:var(--card);border-radius:10px;width:34px;height:30px;font-size:16px;color:var(--ink);cursor:pointer}
+.cal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:8px 6px 6px;display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal .wd{text-align:center;font-size:11px;color:var(--sub);padding-bottom:4px}
+.cal .wd.su,.cal .cell.su .dn{color:#b34a3a}
+.cal .wd.sa,.cal .cell.sa .dn{color:#3a6ab3}
+.cell{min-height:58px;border-radius:10px;padding:3px 0 2px;display:flex;flex-direction:column;align-items:center;cursor:pointer;border:1.5px solid transparent}
+.cell.out{visibility:hidden}
+.cell .dn{font-size:12px;font-variant-numeric:tabular-nums;line-height:1.4}
+.cell.today .dn{background:var(--ink);color:#fff!important;border-radius:999px;padding:0 6px}
+.cell.sel{border-color:var(--accent2,#b07a4f);background:#fbf6f0}
+.stps{display:flex;flex-wrap:wrap;justify-content:center;gap:1px;margin-top:3px}
+.stp{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1.6px solid #c0392b;border-radius:50%;color:#c0392b;background:rgba(192,57,43,.05);font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-weight:700;font-size:14px;line-height:1;transform:rotate(-10deg)}
+.stps.many .stp{width:19px;height:19px;font-size:10.5px;border-width:1.3px}
+.daylist{margin-top:8px}
+.more{display:block;width:100%;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--accent);font-size:14px;font-family:inherit;cursor:pointer}
+.stin{width:56px!important;text-align:center}
 .zoom{position:fixed;inset:0;background:#fff;display:flex;align-items:center;justify-content:center;z-index:9;padding:24px}
 .zoom svg{width:100%;max-width:520px;height:auto}
 </style>
@@ -91,6 +109,8 @@ function hm(d){return pad(d.getHours())+':'+pad(d.getMinutes())}
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function dist(a,b,c,d){var R=6371000,r=Math.PI/180,x=(c-a)*r,y=(d-b)*r,h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)*Math.sin(y/2);return 2*R*Math.asin(Math.sqrt(h))}
 function cafeById(id){for(var i=0;i<state.cafes.length;i++)if(state.cafes[i].id===id)return state.cafes[i];return null}
+function stampText(name){var n=String(name||'').replace(/^\s*(セルフカフェ|SELF\s*CAFE)\s*/i,'');return n.charAt(0)||'？'}
+function stampOf(v){var c=cafeById(v.cafeId);if(c&&c.stamp)return c.stamp;return stampText(c?c.name:v.cafe)}
 function cafeName(v){var c=cafeById(v.cafeId);return c?c.name:(v.cafe||'不明なお店')}
 
 function addVisit(cafe,auto){
@@ -174,19 +194,45 @@ function render(){
   var days={},per={};month.forEach(function(v){days[dkey(new Date(v.t))]=1;var n=cafeName(v);per[n]=(per[n]||0)+1});
   h+='<div class="sec"><h2>'+(now.getMonth()+1)+'月のまとめ</h2><div class="stats"><div class="stat"><b>'+Object.keys(days).length+'</b><span>行った日数</span></div><div class="stat"><b>'+month.length+'</b><span>入店回数</span></div></div>';
   var pk=Object.keys(per).sort(function(a,b){return per[b]-per[a]});
-  if(pk.length)h+='<div class="per">'+pk.map(function(k){return esc(k)+' '+per[k]+'回'}).join(' ・ ')+'</div>';
+  h+='</div>';
+
+  // calendar
+  var byDay={};state.visits.forEach(function(v){var k=dkey(new Date(v.t));(byDay[k]=byDay[k]||[]).push(v)});
+  h+='<div class="sec"><div class="calhead"><button class="calnav" id="cprev">‹</button><h2>'+calY+'年'+(calM+1)+'月</h2><button class="calnav" id="cnext">›</button></div><div class="cal">';
+  for(var w=0;w<7;w++)h+='<div class="wd'+(w===0?' su':w===6?' sa':'')+'">'+W[w]+'</div>';
+  var first=new Date(calY,calM,1),last=new Date(calY,calM+1,0).getDate(),lead=first.getDay();
+  for(var e=0;e<lead;e++)h+='<div class="cell out"></div>';
+  for(var dd=1;dd<=last;dd++){
+    var dt=new Date(calY,calM,dd),k=dkey(dt),vs=byDay[k]||[],seen={},st=[];
+    vs.slice().sort(function(a,b){return a.t<b.t?-1:1}).forEach(function(v){var s=stampOf(v);if(!seen[s]){seen[s]=1;st.push(s)}});
+    var wd=dt.getDay();
+    h+='<div class="cell'+(wd===0?' su':wd===6?' sa':'')+(k===today?' today':'')+(k===calSel?' sel':'')+'" data-day="'+k+'"><span class="dn">'+dd+'</span>';
+    if(st.length)h+='<div class="stps'+(st.length>1?' many':'')+'">'+st.slice(0,4).map(function(s){return '<span class="stp">'+esc(s)+'</span>'}).join('')+'</div>';
+    h+='</div>';
+  }
+  h+='</div>';
+  if(calSel){
+    var sv=(byDay[calSel]||[]).slice().sort(function(a,b){return a.t<b.t?-1:1}),sd=new Date(calSel+'T00:00:00');
+    h+='<div class="card daylist"><div class="day">'+dlabel(sd)+'</div>';
+    if(!sv.length)h+='<div class="empty">この日の記録はありません</div>';
+    sv.forEach(function(v){h+='<div class="row"><span class="t">'+hm(new Date(v.t))+'</span><span class="n">'+esc(cafeName(v))+'</span></div>'});
+    h+='</div>';
+  }
   h+='</div>';
 
   // history
   h+='<div class="sec"><h2>記録</h2><div class="card">';
   if(!state.visits.length)h+='<div class="empty">まだ記録はありません</div>';
   var sorted=state.visits.slice().sort(function(a,b){return b.t<a.t?-1:1}),cur='';
-  sorted.slice(0,300).forEach(function(v){
+  var LIM=4,shown=showAll?sorted:sorted.slice(0,LIM);
+  shown.forEach(function(v){
     var d=new Date(v.t),k=dkey(d);
     if(k!==cur){cur=k;h+='<div class="day">'+(k===today?'今日・':'')+dlabel(d)+'</div>'}
     h+='<div class="row"><span class="t">'+hm(d)+'</span><span class="n">'+esc(cafeName(v))+(v.auto?'':' <span class="m">手動</span>')+'</span><button class="x'+(sureId===v.id?' sure':'')+'" data-del="'+v.id+'">'+(sureId===v.id?'削除する':'×')+'</button></div>';
   });
-  h+='</div></div>';
+  h+='</div>';
+  if(sorted.length>LIM)h+='<button class="more" id="more">'+(showAll?'閉じる':'続きを見る（あと'+(sorted.length-LIM)+'件）')+'</button>';
+  h+='</div>';
 
   // manual
   h+='<details id="dm"'+(openM?' open':'')+'><summary>手動で記録 ▾</summary><div class="note">位置情報がうまく取れないときに使います。</div>';
@@ -202,8 +248,8 @@ function render(){
   if(!state.cafes.length)h+='<div class="note">まだありません</div>';
   else{h+='<div class="card" style="margin-top:8px">';
     state.cafes.forEach(function(c){
-      if(renameId===c.id)h+='<div class="row"><input type="text" id="rn" value="'+esc(c.name)+'" maxlength="30"><button class="btn pri" data-rnok="'+c.id+'">OK</button></div>';
-      else h+='<div class="row"><span class="n">'+esc(c.name)+'</span><button class="x" data-rn="'+c.id+'">名前変更</button><button class="x" data-mv="'+c.id+'">位置を今の場所に</button><button class="x'+(sureId==='c'+c.id?' sure':'')+'" data-dc="'+c.id+'">'+(sureId==='c'+c.id?'削除する':'×')+'</button></div>';
+      if(renameId===c.id)h+='<div class="row" style="flex-wrap:wrap"><input type="text" id="rn" value="'+esc(c.name)+'" maxlength="30" style="flex:1;min-width:140px"><input type="text" id="rs1" class="stin" value="'+esc(c.stamp||stampText(c.name))+'" maxlength="2" placeholder="印"><button class="btn pri" data-rnok="'+c.id+'">OK</button><div class="note" style="width:100%;margin:4px 0 0">右の枠はカレンダーのスタンプの文字です（1〜2文字）</div></div>';
+      else h+='<div class="row"><span class="stp" style="transform:none;width:24px;height:24px;font-size:12px">'+esc(c.stamp||stampText(c.name))+'</span><span class="n">'+esc(c.name)+'</span><button class="x" data-rn="'+c.id+'">編集</button><button class="x" data-mv="'+c.id+'">位置を今の場所に</button><button class="x'+(sureId==='c'+c.id?' sure':'')+'" data-dc="'+c.id+'">'+(sureId==='c'+c.id?'削除する':'×')+'</button></div>';
     });
     h+='</div>';}
   h+='<div class="note">お店に来たのに「近くにない」と出る場合は「位置を今の場所に」で位置を合わせ直してください。</div></details>';
@@ -217,13 +263,17 @@ function render(){
   document.getElementById('app').innerHTML=h;
   bind();
 }
-var openM=false,openC=false,openB=false;
+var openM=false,openC=false,openB=false,showAll=false,calY=new Date().getFullYear(),calM=new Date().getMonth(),calSel=null;
 
 function on(id,fn){var e=document.getElementById(id);if(e)e.onclick=fn}
 function bind(){
   ['dm','dc','db'].forEach(function(id){var e=document.getElementById(id);e.ontoggle=function(){if(id==='dm')openM=e.open;if(id==='dc')openC=e.open;if(id==='db')openB=e.open}});
   on('qr',function(){var z=document.createElement('div');z.className='zoom';z.innerHTML=QR_SVG;z.onclick=function(){z.remove()};document.body.appendChild(z)});
   on('retry',function(){locate()});
+  on('more',function(){showAll=!showAll;render()});
+  on('cprev',function(){calM--;if(calM<0){calM=11;calY--}calSel=null;render()});
+  on('cnext',function(){calM++;if(calM>11){calM=0;calY++}calSel=null;render()});
+  document.querySelectorAll('[data-day]').forEach(function(c){c.onclick=function(){var k=c.getAttribute('data-day');calSel=(calSel===k)?null:k;render()}});
   on('undo',function(){var id=geo.v&&geo.v.id;state.visits=state.visits.filter(function(v){return v.id!==id});save();geo={st:'idle'};render()});
   on('nokeep',function(){geo={st:'idle'};render()});
   on('again',function(){var v=addVisit(geo.cafe,true);geo={st:'recorded',cafe:geo.cafe,v:v};render()});
@@ -237,7 +287,7 @@ function bind(){
   document.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-del');if(sureId!==id){sureId=id;render();return}state.visits=state.visits.filter(function(v){return v.id!==id});sureId=null;save();render()}});
   document.querySelectorAll('[data-dc]').forEach(function(b){b.onclick=function(){var id=b.getAttribute('data-dc');if(sureId!=='c'+id){sureId='c'+id;render();return}state.cafes=state.cafes.filter(function(c){return c.id!==id});sureId=null;save();render()}});
   document.querySelectorAll('[data-rn]').forEach(function(b){b.onclick=function(){renameId=b.getAttribute('data-rn');render();var i=document.getElementById('rn');if(i)i.focus()}});
-  document.querySelectorAll('[data-rnok]').forEach(function(b){b.onclick=function(){var c=cafeById(b.getAttribute('data-rnok'));var n=document.getElementById('rn').value.trim();if(c&&n){c.name=n;state.visits.forEach(function(v){if(v.cafeId===c.id)v.cafe=n});save()}renameId=null;render()}});
+  document.querySelectorAll('[data-rnok]').forEach(function(b){b.onclick=function(){var c=cafeById(b.getAttribute('data-rnok'));var n=document.getElementById('rn').value.trim();var s1=(document.getElementById('rs1').value||'').trim();if(c){if(s1&&s1!==stampText(n||c.name))c.stamp=s1;else delete c.stamp}if(c&&n){c.name=n;state.visits.forEach(function(v){if(v.cafeId===c.id)v.cafe=n})}save();renameId=null;render()}});
   document.querySelectorAll('[data-mv]').forEach(function(b){b.onclick=function(){
     var c=cafeById(b.getAttribute('data-mv'));if(!c||!navigator.geolocation)return;b.textContent='確認中…';
     navigator.geolocation.getCurrentPosition(function(p){c.lat=p.coords.latitude;c.lng=p.coords.longitude;save();flash='';render();b=null},function(){flash='現在地を取得できませんでした';render()},{enableHighAccuracy:true,timeout:15000,maximumAge:0});
